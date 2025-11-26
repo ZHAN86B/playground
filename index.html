@@ -2,595 +2,506 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Vintage Polaroid</title>
-    <!-- 引入打字机字体和手写体 -->
-    <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Cedarville+Cursive&display=swap" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>RetroCam Ultimate</title>
+    <!-- 字体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Oswald:wght@500&family=Roboto+Mono:wght@400;700&display=swap" rel="stylesheet">
     <style>
-        :root {
-            --leather-dark: #1a1a1a;
-            --metal-silver: #d1d1d1;
-            --metal-dark: #444;
-            --shutter-accent: #b71c1c;
-            --paper-texture: #fdfbf7;
-        }
-
-        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-
+        /* --- 0. 全局设置 --- */
+        :root { --bg:#2b2b2b; --body:#e0e0e0; }
+        * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; user-select:none; }
+        
         body {
-            margin: 0;
-            padding: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: #2c2c2c;
-            /* 木纹桌面背景 */
-            background-image: repeating-linear-gradient(45deg, #2b2b2b 0px, #2b2b2b 2px, #262626 2px, #262626 4px);
-            overflow: hidden;
-            font-family: 'Special Elite', monospace;
-            touch-action: none;
+            margin:0; width:100vw; height:100vh; overflow:hidden;
+            background: radial-gradient(#333 15%, transparent 16%) 0 0/20px 20px, var(--bg);
+            display:flex; flex-direction:column; align-items:center; justify-content:center; /* 垂直居中 */
+            font-family:'Roboto Mono', monospace;
         }
 
-        /* --- 1. 照片墙 --- */
-        #photo-wall {
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 1;
+        /* --- 1. 启动遮罩 (核心修复: 错误引导) --- */
+        #mask {
+            position:fixed; inset:0; background:rgba(0,0,0,0.92); z-index:9999;
+            display:flex; flex-direction:column; justify-content:center; align-items:center;
+            text-align:center; transition:opacity 0.5s; padding: 20px;
         }
+        .start-btn {
+            padding:15px 40px; border:2px solid #fff; color:#fff; background:transparent;
+            font-size:18px; border-radius:30px; margin-top:20px; cursor:pointer;
+            transition: 0.2s;
+        }
+        .start-btn:active { background: #fff; color: #000; }
+        
+        .error-box {
+            margin-top:20px; text-align:left; background:#222; padding:15px; 
+            border-radius:8px; border-left:4px solid #ff4757; display:none; width: 100%; max-width: 320px;
+        }
+        .error-title { color:#ff4757; font-weight:bold; font-size:14px; margin-bottom:5px; display:block; }
+        .error-desc { color:#ccc; font-size:12px; line-height:1.5; }
+        .album-hint { color:#ffd700; font-size:12px; margin-top:10px; font-weight:bold; text-align:center; display:none;}
 
-        /* --- 2. 拍立得照片实体 --- */
-        .polaroid-card {
-            position: absolute;
-            width: 160px;
-            /* 这里不设高度，由内容撑开，但我们实际上是生成一张整图 */
-            z-index: 10;
-            cursor: grab;
+        /* --- 2. 桌面与照片 --- */
+        #desk { position:fixed; inset:0; z-index:1; pointer-events:none; }
+        .card {
+            position:absolute; width:160px; padding:10px 10px 40px 10px; background:#fff;
+            box-shadow:0 10px 25px rgba(0,0,0,0.4); border-radius:2px; pointer-events:auto;
             transition: transform 0.1s;
-            /* 关键：阴影让它看起来浮在桌面上 */
-            filter: drop-shadow(2px 5px 10px rgba(0,0,0,0.5));
         }
+        .card:active { transform: scale(1.05); z-index: 9999 !important; }
+        .card img { width:100%; height:140px; object-fit:cover; background:#eee; display:block; }
+        .card canvas { position:absolute; bottom:5px; left:0; width:100%; height:35px; }
 
-        .polaroid-card:active {
-            cursor: grabbing;
-            filter: drop-shadow(5px 15px 25px rgba(0,0,0,0.6));
-            z-index: 9999 !important;
+        /* --- 3. 相机容器 (自适应缩放) --- */
+        #cam-root {
+            position:relative; width:340px; height:420px; z-index:100;
+            display:flex; flex-direction:column; justify-content:flex-end; align-items:center;
+            transform-origin:bottom center;
         }
+        /* 小屏幕自动缩小 */
+        @media(max-height:700px){ #cam-root{transform:scale(0.85)} }
 
-        /* 合成后的图片样式 */
-        .polaroid-img {
-            width: 100%;
-            display: block;
-            pointer-events: none; /* 让鼠标事件穿透给父级div用于拖拽 */
+        /* --- 4. 机身 UI --- */
+        .body {
+            position:relative; width:340px; height:260px; background:#dcdcdc;
+            border-radius:30px; box-shadow:0 20px 50px rgba(0,0,0,0.6); z-index:10;
         }
-
-        /* 下载/保存按钮 (悬浮在照片角落) */
-        .save-btn {
-            position: absolute;
-            bottom: 10px;
-            right: 10px;
-            width: 24px;
-            height: 24px;
-            background: rgba(0,0,0,0.1);
-            border-radius: 50%;
-            border: 1px solid rgba(0,0,0,0.2);
-            color: #333;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-            z-index: 20;
-            font-size: 14px;
-            opacity: 0.5;
-        }
-        .save-btn:active { background: rgba(0,0,0,0.3); }
-
-        /* 动画：弹出 */
-        .ejecting {
-            animation: ejectAnim 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
-        }
-        @keyframes ejectAnim {
-            from { transform: translate(-50%, 50%) scale(0.8); opacity: 0; }
-            to { transform: translate(-50%, -120%) scale(1) rotate(-3deg); opacity: 1; }
-        }
-
-        /* --- 3. 复古相机 UI --- */
-        .camera-rig {
-            position: fixed;
-            bottom: 0;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 100%;
-            max-width: 400px;
-            height: 260px; /* 机身高度 */
-            z-index: 100;
-            display: flex;
-            justify-content: center;
-        }
-
-        /* 黑色皮革机身 */
-        .camera-body {
-            position: absolute;
-            bottom: -20px; /* 沉底一点 */
-            width: 90%;
-            height: 240px;
-            background: var(--leather-dark);
-            border-radius: 20px 20px 0 0;
-            box-shadow: 
-                0 -5px 20px rgba(0,0,0,0.6),
-                inset 0 2px 2px rgba(255,255,255,0.1);
-            /* 皮革纹理模拟 */
-            background-image: 
-                radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
-                radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
-            background-size: 4px 4px;
-            background-position: 0 0, 2px 2px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            border-top: 4px solid #333;
-        }
-
-        /* 金属饰面条 */
-        .metal-strip {
-            position: absolute;
-            top: 20px;
-            width: 100%;
-            height: 60px;
-            background: linear-gradient(to bottom, #d1d1d1 0%, #999 50%, #d1d1d1 100%);
-            z-index: 1;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
-        }
-
-        /* 镜头 */
-        .lens-assembly {
-            position: absolute;
-            top: 40px;
-            width: 140px;
-            height: 140px;
-            background: #111;
-            border-radius: 50%;
-            z-index: 10;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            border: 2px solid #333;
-        }
-
-        .lens-glass {
-            width: 120px;
-            height: 120px;
-            border-radius: 50%;
-            overflow: hidden;
-            position: relative;
-            background: #000;
-            border: 4px solid #222;
-        }
-
-        video, .static-preview {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-            /* 稍微加点老镜头的感觉 */
-            filter: contrast(1.1) saturate(0.9);
+        /* 皮革纹理 */
+        .skin {
+            position:absolute; bottom:0; width:100%; height:170px; background:#1a1a1a;
+            border-radius:0 0 30px 30px;
+            background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='1.5' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.15'/%3E%3C/svg%3E");
         }
         
-        video { transform: scaleX(-1); } /* 默认前置镜像 */
-
-        /* 镜头反光 */
-        .lens-glass::after {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, transparent 40%);
-            pointer-events: none;
+        /* 镜头组 */
+        .lens {
+            position:absolute; top:30px; left:50%; transform:translateX(-50%);
+            width:180px; height:180px; border-radius:50%; background:#222;
+            box-shadow:0 10px 20px rgba(0,0,0,0.4); display:flex; justify-content:center; align-items:center; z-index:20;
+        }
+        .ring {
+            width:160px; height:160px; border-radius:50%;
+            background: conic-gradient(#bbb, #fff, #bbb, #888, #bbb, #fff, #bbb);
+            display:flex; justify-content:center; align-items:center;
+        }
+        .glass {
+            width:130px; height:130px; border-radius:50%; background:#000;
+            overflow:hidden; border:4px solid #111; position:relative; cursor: pointer;
+        }
+        video, .preview-img { width:100%; height:100%; object-fit:cover; transform:scaleX(-1); transition:filter 0.3s; }
+        .preview-img { transform:none; } 
+        
+        /* 镜头镀膜反光 */
+        .coating {
+            position:absolute; inset:0; pointer-events:none;
+            background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.1), rgba(100,0,220,0.15) 50%, transparent 70%);
         }
 
-        /* 红色快门按钮 */
-        .shutter-btn {
-            position: absolute;
-            right: 20px;
-            top: -15px; /* 凸出机身 */
-            width: 50px;
-            height: 50px;
-            background: radial-gradient(circle at 30% 30%, #ff5252, #b71c1c);
-            border: 3px solid #ddd;
-            border-radius: 50%;
-            cursor: pointer;
-            z-index: 20;
-            box-shadow: 0 5px 10px rgba(0,0,0,0.4);
-            transition: transform 0.1s;
+        /* 快门 */
+        .shutter {
+            position:absolute; top:-15px; left:40px; width:50px; height:50px; border-radius:50%;
+            background:#fff; border:1px solid #ddd; box-shadow:0 5px 10px rgba(0,0,0,0.3);
+            display:flex; justify-content:center; align-items:center; z-index:15; cursor: pointer;
         }
-        .shutter-btn:active { transform: translateY(4px); }
+        .shutter span { width:36px; height:36px; border-radius:50%; background:radial-gradient(#ff6b6b, #c0392b); transition:0.1s; border: 2px solid #eee;}
+        .shutter:active span { transform:scale(0.85); }
 
-        /* 功能按钮 (相册、切换) */
-        .sub-btn {
-            width: 40px;
-            height: 40px;
-            background: #333;
-            border: 1px solid #555;
-            border-radius: 4px;
-            color: #ddd;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-            position: absolute;
-            bottom: 20px;
-            z-index: 15;
-            box-shadow: inset 0 0 5px #000;
-        }
-        .sub-btn:active { background: #222; }
-
-        .btn-album { left: 30px; }
-        .btn-switch { right: 30px; }
-
-        /* 出片口缝隙 */
-        .slot {
-            position: absolute;
-            top: -5px;
-            width: 180px;
-            height: 10px;
-            background: #000;
-            z-index: 5;
-            border-radius: 4px;
+        /* 取景器/闪光灯 */
+        .viewfinder {
+            position:absolute; top:25px; right:30px; width:60px; height:35px;
+            background:#333; border:2px solid #555; border-radius:4px;
+            display:flex; justify-content:center; align-items:center; color:#ff4757; font-weight:bold; font-family:sans-serif;
         }
 
-        /* 隐藏input */
-        #file-picker { display: none; }
-
-        /* 提示 */
-        .msg-box {
-            position: fixed;
-            top: 50%; left: 50%;
-            transform: translate(-50%, -50%);
-            background: rgba(0,0,0,0.8);
-            color: #fff;
-            padding: 15px 25px;
-            border-radius: 5px;
-            pointer-events: none;
-            opacity: 0;
-            transition: opacity 0.3s;
-            z-index: 200;
-            text-align: center;
-            font-size: 14px;
+        /* 底部按钮 */
+        .ctrls {
+            position:absolute; bottom:-30px; width:100%; display:flex; justify-content:center; gap:20px; z-index:30;
         }
+        .btn {
+            width:44px; height:44px; border-radius:50%; background:#f5f5f5; border: 2px solid #ccc;
+            display:flex; justify-content:center; align-items:center; font-size:20px;
+            box-shadow:0 4px 8px rgba(0,0,0,0.2); cursor:pointer; transition: 0.1s;
+        }
+        .btn:active { transform: scale(0.9); }
+        .btn.active { color:#c0392b; border:2px solid #fab1a0; }
 
+        /* 滤镜提示 */
+        #f-tip { position: absolute; top: -50px; width: 100%; text-align: center; color: white; opacity: 0; transition: 0.3s; text-shadow: 0 2px 5px black; font-size: 14px;}
+        
+        /* 出片口 */
+        .slot { position:absolute; top:100px; left:50%; transform:translateX(-50%); width:200px; height:10px; background:#000; z-index:1; border-radius: 5px; }
+        
+        /* 动画 */
+        .ejecting { animation: eject 1s cubic-bezier(0.2,0.8,0.2,1) forwards; }
+        @keyframes eject { 0%{transform:translateY(0)} 100%{transform:translateY(-240px) rotate(-3deg)} }
+
+        /* 签名模态框 */
+        #sign-modal { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.95); z-index:2000; flex-direction:column; align-items:center; justify-content:center; }
+        
+        /* Toast */
+        .toast { position:fixed; top:20%; left:50%; transform:translateX(-50%); background:rgba(255,255,255,0.9); padding:8px 16px; border-radius:20px; opacity:0; transition:0.3s; pointer-events:none; z-index:500; font-size:12px; }
     </style>
 </head>
 <body>
 
-    <!-- 消息提示 -->
-    <div class="msg-box" id="msg-box">提示信息</div>
-
-    <!-- 照片墙 -->
-    <div id="photo-wall"></div>
-
-    <!-- 隐藏的 Canvas 用于合成 -->
-    <canvas id="composite-canvas" style="display: none;"></canvas>
-
-    <!-- 相机主体 -->
-    <div class="camera-rig">
-        <div class="slot" id="slot-ref"></div>
+    <!-- 1. 启动遮罩 (核心部分) -->
+    <div id="mask">
+        <h2 style="color:white; letter-spacing:4px; margin-bottom: 10px;">RETRO CAM</h2>
+        <div style="color:#888; font-size: 12px;">ULTIMATE EDITION</div>
         
-        <div class="camera-body">
-            <div class="metal-strip"></div>
-            
-            <!-- 镜头 -->
-            <div class="lens-assembly">
-                <div class="lens-glass">
-                    <video id="video" autoplay playsinline muted></video>
-                    <img id="preview-img" class="static-preview" style="display:none;">
-                </div>
-            </div>
-
-            <!-- 按钮组 -->
-            <input type="file" id="file-picker" accept="image/*">
-            <div class="sub-btn btn-album" id="album-btn" title="导入照片">📂</div>
-            <div class="sub-btn btn-switch" id="switch-btn" title="切换镜头">↻</div>
+        <button class="start-btn" id="start-btn" onclick="initSystem()">启动相机 / START</button>
+        
+        <div class="error-box" id="error-box">
+            <span class="error-title" id="err-title">启动失败</span>
+            <div class="error-desc" id="err-desc"></div>
         </div>
-
-        <!-- 快门 (独立于Body，为了层级好控制) -->
-        <button class="shutter-btn" id="shutter"></button>
+        <div class="album-hint" id="album-hint">▼ 已自动切换至相册模式，请点击下方开启 ▼</div>
     </div>
 
+    <div class="toast" id="toast"></div>
+    <div id="desk"></div>
+    <canvas id="cvs" style="display:none"></canvas>
+
+    <!-- 2. 相机 UI -->
+    <div id="cam-root">
+        <div id="f-tip">NORMAL</div>
+        <div class="slot" id="slot-ref"></div>
+
+        <div class="body">
+            <div class="lens">
+                <div class="ring">
+                    <div class="glass" onclick="nextFilter()">
+                        <video id="video" autoplay playsinline muted></video>
+                        <img id="static-img" class="preview-img" style="display:none">
+                        <div class="coating"></div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="shutter" id="shutter-btn"><span></span></div>
+            <div class="viewfinder" id="led"></div>
+            <div class="skin"></div>
+
+            <div class="ctrls">
+                <div class="btn" onclick="fileInput.click()">📂</div>
+                <div class="btn" id="btn-timer" onclick="toggleTimer()">⏱️</div>
+                <div class="btn" onclick="switchCam()">↻</div>
+                <div class="btn" onclick="saveDesk()">💾</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 签名模态框 -->
+    <div id="sign-modal">
+        <h3 style="color:#fff;">签名 / SIGNATURE</h3>
+        <canvas id="pad" width="300" height="150" style="background:#fff; border-radius:4px; border: 2px dashed #666;"></canvas>
+        <div style="margin-top:20px; display:flex; gap:20px;">
+            <button class="btn" onclick="document.getElementById('sign-modal').style.display='none'">❌</button>
+            <button class="btn" onclick="saveSign()" style="color:#4cd137; border-color:#4cd137">✔</button>
+        </div>
+    </div>
+
+    <input type="file" id="file-input" hidden accept="image/*">
+
     <script>
-        // --- 核心变量 ---
+        // --- 变量定义 ---
         const video = document.getElementById('video');
-        const previewImg = document.getElementById('preview-img');
-        const canvas = document.getElementById('composite-canvas');
-        const photoWall = document.getElementById('photo-wall');
-        const msgBox = document.getElementById('msg-box');
-        const slotRef = document.getElementById('slot-ref');
+        const staticImg = document.getElementById('static-img');
+        const desk = document.getElementById('desk');
+        const cvs = document.getElementById('cvs');
+        const slot = document.getElementById('slot-ref');
+        
+        let stream = null;
+        let isFront = true;
+        let timerOn = false;
+        let useStatic = false;
 
-        let isFrontCam = true;
-        let currentStream = null;
-        let useStaticImage = false; // 是否使用相册图片
+        const FILTERS = [
+            {n:"NORMAL", c:"none"},
+            {n:"VIVID", c:"saturate(1.4) contrast(1.1)"},
+            {n:"B&W", c:"grayscale(100%) contrast(1.2)"},
+            {n:"FILM", c:"sepia(0.3) saturate(1.2) contrast(0.9)"},
+            {n:"CYBER", c:"hue-rotate(190deg) saturate(1.2)"}
+        ];
+        let fIdx = 0;
 
-        // --- 1. 摄像头初始化 ---
-        async function initCamera() {
-            if (currentStream) {
-                currentStream.getTracks().forEach(track => track.stop());
-            }
+        // --- 1. 核心启动逻辑 (最宽容模式) ---
+        async function initSystem() {
+            const btn = document.getElementById('start-btn');
+            const errBox = document.getElementById('error-box');
+            const albumHint = document.getElementById('album-hint');
             
-            const constraints = {
-                video: {
-                    facingMode: isFrontCam ? 'user' : 'environment',
-                    width: { ideal: 1080 },
-                    height: { ideal: 1080 }
-                }
-            };
-
+            btn.innerText = "正在启动...";
+            
             try {
-                const stream = await navigator.mediaDevices.getUserMedia(constraints);
-                currentStream = stream;
-                video.srcObject = stream;
-                video.style.display = 'block';
-                previewImg.style.display = 'none';
-                // 镜像逻辑：前置镜像，后置正常
-                video.style.transform = isFrontCam ? 'scaleX(-1)' : 'scaleX(1)';
-                useStaticImage = false;
-            } catch (err) {
-                console.warn(err);
-                showMsg("无法启动摄像头，请使用相册 📂");
-            }
-        }
-
-        // 切换镜头
-        document.getElementById('switch-btn').addEventListener('click', () => {
-            isFrontCam = !isFrontCam;
-            initCamera();
-        });
-
-        // 启动
-        initCamera();
-
-        // --- 2. 相册导入 ---
-        const filePicker = document.getElementById('file-picker');
-        document.getElementById('album-btn').addEventListener('click', () => filePicker.click());
-
-        filePicker.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (file) {
-                const reader = new FileReader();
-                reader.onload = (evt) => {
-                    previewImg.src = evt.target.result;
-                    video.style.display = 'none';
-                    previewImg.style.display = 'block';
-                    useStaticImage = true;
-                    showMsg("照片已装载");
+                // 仅请求 video，不限制分辨率，兼容性最强
+                const constraints = {
+                    video: { facingMode: isFront ? "user" : "environment" },
+                    audio: false
                 };
-                reader.readAsDataURL(file);
-            }
-        });
 
-        // --- 3. 拍照合成逻辑 (核心) ---
-        document.getElementById('shutter').addEventListener('click', () => {
-            // 按钮动效
-            const btn = document.getElementById('shutter');
-            btn.style.transform = 'scale(0.9)';
-            setTimeout(() => btn.style.transform = '', 100);
-
-            processPhoto();
-        });
-
-        function processPhoto() {
-            const ctx = canvas.getContext('2d');
-            
-            // 设定拍立得的高清尺寸 (Canvas尺寸)
-            // 经典比例：宽度 8.8cm (设为600px)，高度 10.7cm (设为720px)
-            const cw = 600;
-            const ch = 720;
-            canvas.width = cw;
-            canvas.height = ch;
-
-            // A. 绘制相纸底色 (米白色带纹理)
-            ctx.fillStyle = '#fdfbf7';
-            ctx.fillRect(0, 0, cw, ch);
-            
-            // 添加一点杂色模拟纸张
-            // (这里简化处理，直接用颜色)
-
-            // B. 绘制照片区域 (黑色底框)
-            // 照片通常是方形，留边：左右30px，上30px，下140px
-            const photoSize = 540; // 600 - 30 - 30
-            const photoX = 30;
-            const photoY = 30;
-            
-            ctx.fillStyle = '#111';
-            ctx.fillRect(photoX, photoY, photoSize, photoSize);
-
-            // C. 绘制图像内容
-            // 需要计算 crop (类似 object-fit: cover)
-            let source = useStaticImage ? previewImg : video;
-            let sw, sh;
-            if (useStaticImage) {
-                sw = source.naturalWidth;
-                sh = source.naturalHeight;
-            } else {
-                sw = video.videoWidth;
-                sh = video.videoHeight;
-                if (!sw) return; // 视频未准备好
-            }
-
-            const sRatio = sw / sh;
-            // 目标比例是 1:1 (photoSize/photoSize)
-            let sx, sy, sSize;
-
-            if (sRatio > 1) {
-                // 宽图，裁中间
-                sSize = sh;
-                sx = (sw - sh) / 2;
-                sy = 0;
-            } else {
-                // 长图，裁中间
-                sSize = sw;
-                sx = 0;
-                sy = (sh - sw) / 2;
-            }
-
-            ctx.save();
-            // 如果是前置摄像头拍照，需要镜像翻转回来
-            if (!useStaticImage && isFrontCam) {
-                ctx.translate(photoX + photoSize, photoY);
-                ctx.scale(-1, 1);
-                ctx.drawImage(source, sx, sy, sSize, sSize, 0, 0, photoSize, photoSize);
-            } else {
-                ctx.drawImage(source, sx, sy, sSize, sSize, photoX, photoY, photoSize, photoSize);
-            }
-            ctx.restore();
-
-            // D. 添加复古滤镜层 (在Canvas上直接叠加半透明层)
-            // 1. 晕影 (Vignette)
-            const grad = ctx.createRadialGradient(cw/2, photoY + photoSize/2, photoSize/3, cw/2, photoY + photoSize/2, photoSize*0.7);
-            grad.addColorStop(0, 'rgba(0,0,0,0)');
-            grad.addColorStop(1, 'rgba(0,0,0,0.4)');
-            ctx.fillStyle = grad;
-            ctx.fillRect(photoX, photoY, photoSize, photoSize);
-
-            // 2. 暖色调
-            ctx.fillStyle = 'rgba(200, 150, 100, 0.15)';
-            ctx.globalCompositeOperation = 'overlay';
-            ctx.fillRect(photoX, photoY, photoSize, photoSize);
-            ctx.globalCompositeOperation = 'source-over';
-
-            // E. 绘制文字 (手写日期)
-            ctx.fillStyle = '#444';
-            ctx.font = '40px "Cedarville Cursive", cursive';
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'middle';
-            
-            const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-            ctx.fillText(dateStr, cw/2, photoY + photoSize + 60); // 写在底部空白处
-
-            // F. 生成图片
-            const finalImgData = canvas.toDataURL('image/jpeg', 0.9);
-            createPolaroidElement(finalImgData);
-        }
-
-        // --- 4. 生成 DOM 元素与交互 ---
-        function createPolaroidElement(imgUrl) {
-            const card = document.createElement('div');
-            card.className = 'polaroid-card';
-            
-            // 初始位置：出片口
-            const slotRect = slotRef.getBoundingClientRect();
-            // 计算居中偏移
-            const startLeft = slotRect.left + (slotRect.width / 2);
-            const startTop = slotRect.top;
-            
-            card.style.left = startLeft + 'px';
-            card.style.top = startTop + 'px';
-
-            // 内部结构：一张完整的合成图 + 下载按钮
-            card.innerHTML = `
-                <img src="${imgUrl}" class="polaroid-img" alt="Polaroid">
-                <div class="save-btn" title="保存">⬇</div>
-            `;
-
-            document.body.appendChild(card);
-
-            // 强制回流后添加动画
-            requestAnimationFrame(() => {
-                card.classList.add('ejecting');
-            });
-
-            // 绑定事件
-            setupInteraction(card, imgUrl);
-        }
-
-        // --- 5. 拖拽与保存逻辑 ---
-        let zIndexCounter = 100;
-
-        function setupInteraction(card, imgUrl) {
-            const saveBtn = card.querySelector('.save-btn');
-            
-            // A. 保存功能
-            saveBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); downloadImg(imgUrl); });
-            saveBtn.addEventListener('click', (e) => { e.stopPropagation(); downloadImg(imgUrl); });
-
-            // B. 拖拽功能 (兼容 Mouse 和 Touch)
-            let isDragging = false;
-            let startX, startY, initialLeft, initialTop;
-
-            const startHandler = (e) => {
-                // 如果点的是保存按钮，不拖拽
-                if (e.target.closest('.save-btn')) return;
-
-                e.preventDefault(); // 防止滚动
-                isDragging = true;
+                stream = await navigator.mediaDevices.getUserMedia(constraints);
                 
-                // 移除弹出动画，固定位置
-                card.classList.remove('ejecting');
+                video.srcObject = stream;
+                // 必须等待元数据加载，否则黑屏
+                video.onloadedmetadata = () => {
+                    video.play();
+                    useStatic = false;
+                    video.style.display = 'block';
+                    staticImg.style.display = 'none';
+                    // 渐隐遮罩
+                    document.getElementById('mask').style.opacity = 0;
+                    setTimeout(()=>document.getElementById('mask').style.display='none', 500);
+                };
+
+            } catch(e) {
+                console.error(e);
+                errBox.style.display = 'block';
                 
-                // 提高层级
-                zIndexCounter++;
-                card.style.zIndex = zIndexCounter;
+                let title = e.name;
+                let desc = "请尝试使用相册模式";
 
-                // 获取触点
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-
-                // 获取当前绝对位置
-                const rect = card.getBoundingClientRect();
-                // 如果是动画中被打断，需要修正 style
-                if (!card.style.left || card.classList.contains('ejecting')) {
-                    card.style.left = rect.left + 'px';
-                    card.style.top = rect.top + 'px';
+                if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+                    desc = "您拒绝了摄像头权限。请点击浏览器地址栏的小锁图标开启，或直接使用相册。";
+                } else if (location.protocol !== 'https:' && location.hostname !== 'localhost') {
+                    title = "HTTPS Required";
+                    desc = "当前链接不安全，浏览器禁止调用相机。请使用 Vercel/Netlify 部署。";
                 }
 
-                startX = clientX;
-                startY = clientY;
-                initialLeft = parseFloat(card.style.left);
-                initialTop = parseFloat(card.style.top);
-            };
-
-            const moveHandler = (e) => {
-                if (!isDragging) return;
-                e.preventDefault();
+                document.getElementById('err-title').innerText = title;
+                document.getElementById('err-desc').innerText = desc;
                 
-                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
-                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+                // 改变按钮为相册模式
+                btn.style.display = 'none';
+                albumHint.style.display = 'block';
+                
+                // 3秒后自动打开相册
+                setTimeout(() => {
+                    document.getElementById('mask').style.display='none';
+                    showToast("已切换至相册模式");
+                    fileInput.click();
+                }, 2500);
+            }
+        }
 
-                const dx = clientX - startX;
-                const dy = clientY - startY;
+        function switchCam() { 
+            if(useStatic) return; // 相册模式下不能翻转
+            isFront=!isFront; 
+            // 如果已经在运行，先停止旧流
+            if(stream) stream.getTracks().forEach(t=>t.stop());
+            initSystem(); 
+        }
 
-                card.style.left = (initialLeft + dx) + 'px';
-                card.style.top = (initialTop + dy) + 'px';
+        // --- 2. 滤镜系统 ---
+        function nextFilter() {
+            fIdx = (fIdx+1)%FILTERS.length;
+            const css = FILTERS[fIdx].c;
+            video.style.filter = css;
+            staticImg.style.filter = css;
+            
+            const tip = document.getElementById('f-tip');
+            tip.innerText = FILTERS[fIdx].n; tip.style.opacity=1;
+            setTimeout(()=>tip.style.opacity=0, 1000);
+        }
+
+        // --- 3. 拍照系统 ---
+        function toggleTimer() {
+            timerOn = !timerOn;
+            document.getElementById('btn-timer').classList.toggle('active', timerOn);
+            showToast(timerOn ? "倒计时: 3s" : "倒计时: 关");
+        }
+
+        document.getElementById('shutter-btn').addEventListener('click', () => {
+            // 按钮动画
+            const s = document.querySelector('.shutter span');
+            s.style.transform = 'scale(0.8)';
+            setTimeout(()=>s.style.transform='scale(1)', 100);
+
+            if(timerOn) {
+                let c = 3;
+                const led = document.getElementById('led');
+                led.innerText = c;
+                const t = setInterval(()=>{
+                    c--;
+                    if(c>0) led.innerText=c;
+                    else { clearInterval(t); led.innerText=""; snap(); }
+                }, 1000);
+            } else {
+                snap();
+            }
+        });
+
+        async function snap() {
+            // 闪光白屏
+            const f=document.createElement('div');
+            f.style.cssText="position:fixed;inset:0;background:#fff;z-index:999;transition:0.1s";
+            document.body.appendChild(f);
+            setTimeout(()=>f.style.opacity=0,50);
+            setTimeout(()=>f.remove(),200);
+
+            const url = await render();
+            eject(url);
+        }
+
+        function render() {
+            return new Promise(resolve => {
+                const ctx = cvs.getContext('2d');
+                cvs.width=600; cvs.height=720;
+                
+                // 1. 底纸
+                ctx.fillStyle="#fff"; ctx.fillRect(0,0,600,720);
+                // 2. 黑色区域
+                ctx.fillStyle="#101010"; ctx.fillRect(35,35,530,530);
+
+                const src = useStatic ? staticImg : video;
+                
+                // 获取源尺寸
+                let vw = useStatic ? src.naturalWidth : src.videoWidth;
+                let vh = useStatic ? src.naturalHeight : src.videoHeight;
+                
+                if(!vw || !vh) {
+                     // 容错：如果没画面，画个灰底
+                    ctx.fillStyle="#333"; ctx.fillRect(35,35,530,530);
+                } else {
+                    const s = Math.min(vw,vh);
+                    const sx=(vw-s)/2, sy=(vh-s)/2;
+                    
+                    ctx.save();
+                    ctx.filter = FILTERS[fIdx].c;
+                    
+                    if(!useStatic && isFront) {
+                        // 前置摄像头需要镜像
+                        ctx.translate(565,35); ctx.scale(-1,1);
+                        ctx.drawImage(src, sx,sy,s,s,0,0,530,530);
+                    } else {
+                        ctx.drawImage(src, sx,sy,s,s,35,35,530,530);
+                    }
+                    ctx.restore();
+                }
+                
+                // 3. 加上日期水印
+                const date = new Date();
+                const dStr = `${date.getFullYear().toString().slice(2)} ${date.getMonth()+1} ${date.getDate()}`;
+                ctx.font = "20px monospace";
+                ctx.fillStyle = "rgba(255, 165, 0, 0.7)";
+                ctx.fillText(dStr, 480, 600);
+
+                resolve(cvs.toDataURL('image/jpeg', 0.85));
+            });
+        }
+
+        // --- 4. 吐片与拖拽 ---
+        function eject(url) {
+            const id = Date.now();
+            const card = document.createElement('div');
+            card.className = 'card';
+            const r = slot.getBoundingClientRect();
+            // 居中
+            card.style.left = (window.innerWidth/2 - 80) + 'px';
+            card.style.top = r.top + 'px';
+            
+            card.innerHTML = `<img src="${url}"><canvas id="sig-${id}"></canvas>`;
+            desk.appendChild(card);
+            
+            requestAnimationFrame(()=>card.classList.add('ejecting'));
+            initDrag(card, id, url);
+        }
+
+        function initDrag(el, id, url) {
+            let z=100, moved=false;
+            const start=e=>{
+                moved=false; el.style.zIndex=++z;
+                const t=e.touches?e.touches[0]:e;
+                const r=el.getBoundingClientRect();
+                const ox=t.clientX-r.left, oy=t.clientY-r.top;
+                
+                const move=ev=>{
+                    moved=true; ev.preventDefault();
+                    const tc=ev.touches?ev.touches[0]:ev;
+                    el.style.left=(tc.clientX-ox)+'px'; el.style.top=(tc.clientY-oy)+'px';
+                    el.classList.remove('ejecting');
+                }
+                const end=()=>{
+                    window.removeEventListener('mousemove',move); window.removeEventListener('mouseup',end);
+                    window.removeEventListener('touchmove',move); window.removeEventListener('touchend',end);
+                    if(!moved) showMenu(id, url);
+                }
+                window.addEventListener('mousemove',move); window.addEventListener('mouseup',end);
+                window.addEventListener('touchmove',move,{passive:false}); window.addEventListener('touchend',end);
             };
-
-            const endHandler = () => {
-                isDragging = false;
-            };
-
-            // 绑定 Touch
-            card.addEventListener('touchstart', startHandler, {passive: false});
-            window.addEventListener('touchmove', moveHandler, {passive: false});
-            window.addEventListener('touchend', endHandler);
-
-            // 绑定 Mouse
-            card.addEventListener('mousedown', startHandler);
-            window.addEventListener('mousemove', moveHandler);
-            window.addEventListener('mouseup', endHandler);
+            el.addEventListener('mousedown',start); el.addEventListener('touchstart',start,{passive:false});
         }
 
-        // 下载辅助函数
-        function downloadImg(url) {
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = 'polaroid_' + Date.now() + '.jpg';
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            showMsg("已开始下载 💾");
+        function showMenu(id, url) {
+            // 简单的原生弹窗菜单
+            if(confirm("你要做什么？\n\n[确定] = ✍️ 签名\n[取消] = ⬇ 保存照片")) {
+                openSign(id);
+            } else {
+                const a=document.createElement('a'); a.href=url; a.download=`instax_${id}.jpg`; a.click();
+            }
         }
 
-        // 显示消息
-        function showMsg(txt) {
-            msgBox.textContent = txt;
-            msgBox.style.opacity = 1;
-            setTimeout(() => msgBox.style.opacity = 0, 2000);
+        // --- 5. 签名 ---
+        let curSig = null;
+        const pad = document.getElementById('pad');
+        const pCtx = pad.getContext('2d');
+        pCtx.strokeStyle="#333"; pCtx.lineWidth=3; pCtx.lineCap="round";
+        let painting=false;
+        
+        function openSign(id) {
+            curSig=id; document.getElementById('sign-modal').style.display='flex';
+            pCtx.clearRect(0,0,300,150);
+        }
+        function saveSign() {
+            if(curSig) {
+                const c=document.getElementById(`sig-${curSig}`);
+                const cx=c.getContext('2d');
+                c.width=140; c.height=35;
+                cx.drawImage(pad,0,0,300,150,0,0,140,35);
+            }
+            document.getElementById('sign-modal').style.display='none';
+        }
+        
+        const getP=e=>{const r=pad.getBoundingClientRect();const t=e.touches?e.touches[0]:e;return{x:t.clientX-r.left,y:t.clientY-r.top}};
+        ['mousedown','touchstart'].forEach(k=>pad.addEventListener(k,e=>{painting=true;e.preventDefault();const p=getP(e);pCtx.beginPath();pCtx.moveTo(p.x,p.y)}));
+        ['mousemove','touchmove'].forEach(k=>pad.addEventListener(k,e=>{if(painting){e.preventDefault();const p=getP(e);pCtx.lineTo(p.x,p.y);pCtx.stroke()}}));
+        ['mouseup','touchend'].forEach(k=>pad.addEventListener(k,()=>painting=false));
+
+        // --- 6. 相册与保存桌面 ---
+        document.getElementById('file-input').addEventListener('change', e=>{
+            if(e.target.files[0]) {
+                const u = URL.createObjectURL(e.target.files[0]);
+                staticImg.src = u;
+                staticImg.onload = () => {
+                    useStatic = true;
+                    video.style.display = 'none';
+                    staticImg.style.display = 'block';
+                    document.getElementById('mask').style.display='none';
+                };
+            }
+        });
+
+        async function saveDesk() {
+            showToast("正在保存桌面...");
+            const dc=document.createElement('canvas');
+            dc.width=window.innerWidth; dc.height=window.innerHeight;
+            const c=dc.getContext('2d');
+            c.fillStyle="#2b2b2b"; c.fillRect(0,0,dc.width,dc.height);
+            document.querySelectorAll('.card').forEach(el=>{
+                const r=el.getBoundingClientRect();
+                const img=el.querySelector('img');
+                const sig=el.querySelector('canvas');
+                c.save(); c.translate(r.left+r.width/2, r.top+r.height/2);
+                c.fillStyle="#fff"; c.fillRect(-80,-110,160,190);
+                if(img) c.drawImage(img,-70,-100,140,140);
+                if(sig) c.drawImage(sig,-70,50,140,35);
+                c.restore();
+            });
+            const a=document.createElement('a'); a.href=dc.toDataURL(); a.download='my_desktop.jpg'; a.click();
         }
 
+        function showToast(m) {
+            const t=document.getElementById('toast'); t.innerText=m; t.style.opacity=1;
+            setTimeout(()=>t.style.opacity=0, 2000);
+        }
     </script>
 </body>
 </html>
