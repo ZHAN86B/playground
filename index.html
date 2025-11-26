@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vintage Polaroid</title>
+    <!-- 引入打字机字体和手写体 -->
+    <link href="https://fonts.googleapis.com/css2?family=Special+Elite&family=Cedarville+Cursive&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --leather-dark: #1a1a1a;
+            --metal-silver: #d1d1d1;
+            --metal-dark: #444;
+            --shutter-accent: #b71c1c;
+            --paper-texture: #fdfbf7;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            background-color: #2c2c2c;
+            /* 木纹桌面背景 */
+            background-image: repeating-linear-gradient(45deg, #2b2b2b 0px, #2b2b2b 2px, #262626 2px, #262626 4px);
+            overflow: hidden;
+            font-family: 'Special Elite', monospace;
+            touch-action: none;
+        }
+
+        /* --- 1. 照片墙 --- */
+        #photo-wall {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 1;
+        }
+
+        /* --- 2. 拍立得照片实体 --- */
+        .polaroid-card {
+            position: absolute;
+            width: 160px;
+            /* 这里不设高度，由内容撑开，但我们实际上是生成一张整图 */
+            z-index: 10;
+            cursor: grab;
+            transition: transform 0.1s;
+            /* 关键：阴影让它看起来浮在桌面上 */
+            filter: drop-shadow(2px 5px 10px rgba(0,0,0,0.5));
+        }
+
+        .polaroid-card:active {
+            cursor: grabbing;
+            filter: drop-shadow(5px 15px 25px rgba(0,0,0,0.6));
+            z-index: 9999 !important;
+        }
+
+        /* 合成后的图片样式 */
+        .polaroid-img {
+            width: 100%;
+            display: block;
+            pointer-events: none; /* 让鼠标事件穿透给父级div用于拖拽 */
+        }
+
+        /* 下载/保存按钮 (悬浮在照片角落) */
+        .save-btn {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            width: 24px;
+            height: 24px;
+            background: rgba(0,0,0,0.1);
+            border-radius: 50%;
+            border: 1px solid rgba(0,0,0,0.2);
+            color: #333;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            z-index: 20;
+            font-size: 14px;
+            opacity: 0.5;
+        }
+        .save-btn:active { background: rgba(0,0,0,0.3); }
+
+        /* 动画：弹出 */
+        .ejecting {
+            animation: ejectAnim 1.2s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+        @keyframes ejectAnim {
+            from { transform: translate(-50%, 50%) scale(0.8); opacity: 0; }
+            to { transform: translate(-50%, -120%) scale(1) rotate(-3deg); opacity: 1; }
+        }
+
+        /* --- 3. 复古相机 UI --- */
+        .camera-rig {
+            position: fixed;
+            bottom: 0;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 100%;
+            max-width: 400px;
+            height: 260px; /* 机身高度 */
+            z-index: 100;
+            display: flex;
+            justify-content: center;
+        }
+
+        /* 黑色皮革机身 */
+        .camera-body {
+            position: absolute;
+            bottom: -20px; /* 沉底一点 */
+            width: 90%;
+            height: 240px;
+            background: var(--leather-dark);
+            border-radius: 20px 20px 0 0;
+            box-shadow: 
+                0 -5px 20px rgba(0,0,0,0.6),
+                inset 0 2px 2px rgba(255,255,255,0.1);
+            /* 皮革纹理模拟 */
+            background-image: 
+                radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px),
+                radial-gradient(rgba(255,255,255,0.03) 1px, transparent 1px);
+            background-size: 4px 4px;
+            background-position: 0 0, 2px 2px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-top: 4px solid #333;
+        }
+
+        /* 金属饰面条 */
+        .metal-strip {
+            position: absolute;
+            top: 20px;
+            width: 100%;
+            height: 60px;
+            background: linear-gradient(to bottom, #d1d1d1 0%, #999 50%, #d1d1d1 100%);
+            z-index: 1;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+        }
+
+        /* 镜头 */
+        .lens-assembly {
+            position: absolute;
+            top: 40px;
+            width: 140px;
+            height: 140px;
+            background: #111;
+            border-radius: 50%;
+            z-index: 10;
+            box-shadow: 0 10px 20px rgba(0,0,0,0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            border: 2px solid #333;
+        }
+
+        .lens-glass {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+            border: 4px solid #222;
+        }
+
+        video, .static-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            /* 稍微加点老镜头的感觉 */
+            filter: contrast(1.1) saturate(0.9);
+        }
+        
+        video { transform: scaleX(-1); } /* 默认前置镜像 */
+
+        /* 镜头反光 */
+        .lens-glass::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.2) 0%, transparent 40%);
+            pointer-events: none;
+        }
+
+        /* 红色快门按钮 */
+        .shutter-btn {
+            position: absolute;
+            right: 20px;
+            top: -15px; /* 凸出机身 */
+            width: 50px;
+            height: 50px;
+            background: radial-gradient(circle at 30% 30%, #ff5252, #b71c1c);
+            border: 3px solid #ddd;
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 20;
+            box-shadow: 0 5px 10px rgba(0,0,0,0.4);
+            transition: transform 0.1s;
+        }
+        .shutter-btn:active { transform: translateY(4px); }
+
+        /* 功能按钮 (相册、切换) */
+        .sub-btn {
+            width: 40px;
+            height: 40px;
+            background: #333;
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: #ddd;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            position: absolute;
+            bottom: 20px;
+            z-index: 15;
+            box-shadow: inset 0 0 5px #000;
+        }
+        .sub-btn:active { background: #222; }
+
+        .btn-album { left: 30px; }
+        .btn-switch { right: 30px; }
+
+        /* 出片口缝隙 */
+        .slot {
+            position: absolute;
+            top: -5px;
+            width: 180px;
+            height: 10px;
+            background: #000;
+            z-index: 5;
+            border-radius: 4px;
+        }
+
+        /* 隐藏input */
+        #file-picker { display: none; }
+
+        /* 提示 */
+        .msg-box {
+            position: fixed;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.8);
+            color: #fff;
+            padding: 15px 25px;
+            border-radius: 5px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.3s;
+            z-index: 200;
+            text-align: center;
+            font-size: 14px;
+        }
+
+    </style>
+</head>
+<body>
+
+    <!-- 消息提示 -->
+    <div class="msg-box" id="msg-box">提示信息</div>
+
+    <!-- 照片墙 -->
+    <div id="photo-wall"></div>
+
+    <!-- 隐藏的 Canvas 用于合成 -->
+    <canvas id="composite-canvas" style="display: none;"></canvas>
+
+    <!-- 相机主体 -->
+    <div class="camera-rig">
+        <div class="slot" id="slot-ref"></div>
+        
+        <div class="camera-body">
+            <div class="metal-strip"></div>
+            
+            <!-- 镜头 -->
+            <div class="lens-assembly">
+                <div class="lens-glass">
+                    <video id="video" autoplay playsinline muted></video>
+                    <img id="preview-img" class="static-preview" style="display:none;">
+                </div>
+            </div>
+
+            <!-- 按钮组 -->
+            <input type="file" id="file-picker" accept="image/*">
+            <div class="sub-btn btn-album" id="album-btn" title="导入照片">📂</div>
+            <div class="sub-btn btn-switch" id="switch-btn" title="切换镜头">↻</div>
+        </div>
+
+        <!-- 快门 (独立于Body，为了层级好控制) -->
+        <button class="shutter-btn" id="shutter"></button>
+    </div>
+
+    <script>
+        // --- 核心变量 ---
+        const video = document.getElementById('video');
+        const previewImg = document.getElementById('preview-img');
+        const canvas = document.getElementById('composite-canvas');
+        const photoWall = document.getElementById('photo-wall');
+        const msgBox = document.getElementById('msg-box');
+        const slotRef = document.getElementById('slot-ref');
+
+        let isFrontCam = true;
+        let currentStream = null;
+        let useStaticImage = false; // 是否使用相册图片
+
+        // --- 1. 摄像头初始化 ---
+        async function initCamera() {
+            if (currentStream) {
+                currentStream.getTracks().forEach(track => track.stop());
+            }
+            
+            const constraints = {
+                video: {
+                    facingMode: isFrontCam ? 'user' : 'environment',
+                    width: { ideal: 1080 },
+                    height: { ideal: 1080 }
+                }
+            };
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia(constraints);
+                currentStream = stream;
+                video.srcObject = stream;
+                video.style.display = 'block';
+                previewImg.style.display = 'none';
+                // 镜像逻辑：前置镜像，后置正常
+                video.style.transform = isFrontCam ? 'scaleX(-1)' : 'scaleX(1)';
+                useStaticImage = false;
+            } catch (err) {
+                console.warn(err);
+                showMsg("无法启动摄像头，请使用相册 📂");
+            }
+        }
+
+        // 切换镜头
+        document.getElementById('switch-btn').addEventListener('click', () => {
+            isFrontCam = !isFrontCam;
+            initCamera();
+        });
+
+        // 启动
+        initCamera();
+
+        // --- 2. 相册导入 ---
+        const filePicker = document.getElementById('file-picker');
+        document.getElementById('album-btn').addEventListener('click', () => filePicker.click());
+
+        filePicker.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (evt) => {
+                    previewImg.src = evt.target.result;
+                    video.style.display = 'none';
+                    previewImg.style.display = 'block';
+                    useStaticImage = true;
+                    showMsg("照片已装载");
+                };
+                reader.readAsDataURL(file);
+            }
+        });
+
+        // --- 3. 拍照合成逻辑 (核心) ---
+        document.getElementById('shutter').addEventListener('click', () => {
+            // 按钮动效
+            const btn = document.getElementById('shutter');
+            btn.style.transform = 'scale(0.9)';
+            setTimeout(() => btn.style.transform = '', 100);
+
+            processPhoto();
+        });
+
+        function processPhoto() {
+            const ctx = canvas.getContext('2d');
+            
+            // 设定拍立得的高清尺寸 (Canvas尺寸)
+            // 经典比例：宽度 8.8cm (设为600px)，高度 10.7cm (设为720px)
+            const cw = 600;
+            const ch = 720;
+            canvas.width = cw;
+            canvas.height = ch;
+
+            // A. 绘制相纸底色 (米白色带纹理)
+            ctx.fillStyle = '#fdfbf7';
+            ctx.fillRect(0, 0, cw, ch);
+            
+            // 添加一点杂色模拟纸张
+            // (这里简化处理，直接用颜色)
+
+            // B. 绘制照片区域 (黑色底框)
+            // 照片通常是方形，留边：左右30px，上30px，下140px
+            const photoSize = 540; // 600 - 30 - 30
+            const photoX = 30;
+            const photoY = 30;
+            
+            ctx.fillStyle = '#111';
+            ctx.fillRect(photoX, photoY, photoSize, photoSize);
+
+            // C. 绘制图像内容
+            // 需要计算 crop (类似 object-fit: cover)
+            let source = useStaticImage ? previewImg : video;
+            let sw, sh;
+            if (useStaticImage) {
+                sw = source.naturalWidth;
+                sh = source.naturalHeight;
+            } else {
+                sw = video.videoWidth;
+                sh = video.videoHeight;
+                if (!sw) return; // 视频未准备好
+            }
+
+            const sRatio = sw / sh;
+            // 目标比例是 1:1 (photoSize/photoSize)
+            let sx, sy, sSize;
+
+            if (sRatio > 1) {
+                // 宽图，裁中间
+                sSize = sh;
+                sx = (sw - sh) / 2;
+                sy = 0;
+            } else {
+                // 长图，裁中间
+                sSize = sw;
+                sx = 0;
+                sy = (sh - sw) / 2;
+            }
+
+            ctx.save();
+            // 如果是前置摄像头拍照，需要镜像翻转回来
+            if (!useStaticImage && isFrontCam) {
+                ctx.translate(photoX + photoSize, photoY);
+                ctx.scale(-1, 1);
+                ctx.drawImage(source, sx, sy, sSize, sSize, 0, 0, photoSize, photoSize);
+            } else {
+                ctx.drawImage(source, sx, sy, sSize, sSize, photoX, photoY, photoSize, photoSize);
+            }
+            ctx.restore();
+
+            // D. 添加复古滤镜层 (在Canvas上直接叠加半透明层)
+            // 1. 晕影 (Vignette)
+            const grad = ctx.createRadialGradient(cw/2, photoY + photoSize/2, photoSize/3, cw/2, photoY + photoSize/2, photoSize*0.7);
+            grad.addColorStop(0, 'rgba(0,0,0,0)');
+            grad.addColorStop(1, 'rgba(0,0,0,0.4)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(photoX, photoY, photoSize, photoSize);
+
+            // 2. 暖色调
+            ctx.fillStyle = 'rgba(200, 150, 100, 0.15)';
+            ctx.globalCompositeOperation = 'overlay';
+            ctx.fillRect(photoX, photoY, photoSize, photoSize);
+            ctx.globalCompositeOperation = 'source-over';
+
+            // E. 绘制文字 (手写日期)
+            ctx.fillStyle = '#444';
+            ctx.font = '40px "Cedarville Cursive", cursive';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            const dateStr = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            ctx.fillText(dateStr, cw/2, photoY + photoSize + 60); // 写在底部空白处
+
+            // F. 生成图片
+            const finalImgData = canvas.toDataURL('image/jpeg', 0.9);
+            createPolaroidElement(finalImgData);
+        }
+
+        // --- 4. 生成 DOM 元素与交互 ---
+        function createPolaroidElement(imgUrl) {
+            const card = document.createElement('div');
+            card.className = 'polaroid-card';
+            
+            // 初始位置：出片口
+            const slotRect = slotRef.getBoundingClientRect();
+            // 计算居中偏移
+            const startLeft = slotRect.left + (slotRect.width / 2);
+            const startTop = slotRect.top;
+            
+            card.style.left = startLeft + 'px';
+            card.style.top = startTop + 'px';
+
+            // 内部结构：一张完整的合成图 + 下载按钮
+            card.innerHTML = `
+                <img src="${imgUrl}" class="polaroid-img" alt="Polaroid">
+                <div class="save-btn" title="保存">⬇</div>
+            `;
+
+            document.body.appendChild(card);
+
+            // 强制回流后添加动画
+            requestAnimationFrame(() => {
+                card.classList.add('ejecting');
+            });
+
+            // 绑定事件
+            setupInteraction(card, imgUrl);
+        }
+
+        // --- 5. 拖拽与保存逻辑 ---
+        let zIndexCounter = 100;
+
+        function setupInteraction(card, imgUrl) {
+            const saveBtn = card.querySelector('.save-btn');
+            
+            // A. 保存功能
+            saveBtn.addEventListener('touchstart', (e) => { e.stopPropagation(); downloadImg(imgUrl); });
+            saveBtn.addEventListener('click', (e) => { e.stopPropagation(); downloadImg(imgUrl); });
+
+            // B. 拖拽功能 (兼容 Mouse 和 Touch)
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            const startHandler = (e) => {
+                // 如果点的是保存按钮，不拖拽
+                if (e.target.closest('.save-btn')) return;
+
+                e.preventDefault(); // 防止滚动
+                isDragging = true;
+                
+                // 移除弹出动画，固定位置
+                card.classList.remove('ejecting');
+                
+                // 提高层级
+                zIndexCounter++;
+                card.style.zIndex = zIndexCounter;
+
+                // 获取触点
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                // 获取当前绝对位置
+                const rect = card.getBoundingClientRect();
+                // 如果是动画中被打断，需要修正 style
+                if (!card.style.left || card.classList.contains('ejecting')) {
+                    card.style.left = rect.left + 'px';
+                    card.style.top = rect.top + 'px';
+                }
+
+                startX = clientX;
+                startY = clientY;
+                initialLeft = parseFloat(card.style.left);
+                initialTop = parseFloat(card.style.top);
+            };
+
+            const moveHandler = (e) => {
+                if (!isDragging) return;
+                e.preventDefault();
+                
+                const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+                const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+                const dx = clientX - startX;
+                const dy = clientY - startY;
+
+                card.style.left = (initialLeft + dx) + 'px';
+                card.style.top = (initialTop + dy) + 'px';
+            };
+
+            const endHandler = () => {
+                isDragging = false;
+            };
+
+            // 绑定 Touch
+            card.addEventListener('touchstart', startHandler, {passive: false});
+            window.addEventListener('touchmove', moveHandler, {passive: false});
+            window.addEventListener('touchend', endHandler);
+
+            // 绑定 Mouse
+            card.addEventListener('mousedown', startHandler);
+            window.addEventListener('mousemove', moveHandler);
+            window.addEventListener('mouseup', endHandler);
+        }
+
+        // 下载辅助函数
+        function downloadImg(url) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'polaroid_' + Date.now() + '.jpg';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            showMsg("已开始下载 💾");
+        }
+
+        // 显示消息
+        function showMsg(txt) {
+            msgBox.textContent = txt;
+            msgBox.style.opacity = 1;
+            setTimeout(() => msgBox.style.opacity = 0, 2000);
+        }
+
+    </script>
+</body>
+</html>
